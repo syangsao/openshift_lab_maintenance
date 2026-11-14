@@ -10,7 +10,7 @@ Run an ordered shutdown or startup of one OpenShift node using `oc` and its Dell
 - A trusted iDRAC HTTPS certificate. If your lab uses a self-signed certificate, explicitly set `idrac_validate_certs: false` in the encrypted variables file; this disables TLS certificate verification.
 - Confirm independently that the OpenShift node and iDRAC address identify **the same physical server**. The playbook cannot verify that mapping. An incorrect address can power off a different server.
 
-Before shutdown, assess cluster capacity, PodDisruptionBudgets, storage, quorum, and critical workloads. The playbook refuses control-plane nodes unless `allow_control_plane: true` is explicitly supplied. That override does not check quorum or make the operation safe. Drain refuses pods with local `emptyDir` data or unmanaged pods rather than deleting their data or forcing eviction; resolve these deliberately before retrying. DaemonSet pods are ignored by drain.
+Before shutdown, assess cluster capacity, PodDisruptionBudgets, storage, quorum, and critical workloads. The playbook refuses control-plane nodes unless `allow_control_plane: true` is explicitly supplied. That override does not check quorum or make the operation safe. **Drain always uses `--delete-emptydir-data=true --ignore-daemonsets=true --force=true --timeout=30m`: it can discard `emptyDir` data and evict unmanaged pods.** Review affected workloads before running it. DaemonSet pods are ignored; PodDisruptionBudgets are still respected.
 
 ## Configure credentials
 
@@ -70,6 +70,6 @@ On 2026-11-13, `control02.syangsao.net` was shut down on the Luke cluster. It is
 6. After successful drain, separately verified the iDRAC-reported UUID again, sent the Redfish `GracefulShutdown` action, and observed `PowerState: Off`. This separate power request was not performed by the playbook. The iDRAC connection used unverified TLS as approved above.
 7. Immediately after power-off, the arbiter and `control01` remained Ready. OpenShift still displayed `control02` as `Ready,SchedulingDisabled`; node status can lag the physical power state. Losing another etcd member while `control02` is off would lose quorum.
 
-The playbook currently does **not** accept the `--delete-emptydir-data` or `--force` drain overrides. A manual drain with those flags is not a reason to skip identity and health checks, and rerunning the original playbook can encounter the same blockers if pods reappear. If performing a manual shutdown after a successful drain, use the verified iDRAC interface to request graceful shutdown and confirm its power state; do not power off after a failed drain.
+The playbook now uses the same drain flags by default. This change was made after the recorded shutdown; that shutdown used a manual drain and separate power request. Do not skip identity and health checks, or power off after a failed drain.
 
 To bring the node back, use the startup playbook command above with the Luke kubeconfig and the node's encrypted variables file. If the iDRAC certificate remains untrusted, the documented explicit TLS exception is still required. Then verify the node, resident pods, cluster operators, etcd and application health; startup has not yet been tested against this node.
