@@ -1,0 +1,4 @@
+*.retry
+*.vault.yml
+.venv/
+__pycache__/

@@ -1,0 +1,147 @@
+---
+- name: Maintain an OpenShift node through iDRAC
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    idrac_validate_certs: true
+    idrac_system_id: System.Embedded.1
+    node_wait_retries: 120
+    node_wait_delay: 10
+    power_wait_retries: 60
+    power_wait_delay: 10
+    allow_control_plane: false
+    redfish_url: "https://{{ idrac_host }}/redfish/v1/Systems/{{ idrac_system_id }}"
+  tasks:
+    - name: Validate required inputs
+      ansible.builtin.assert:
+        that:
+          - action | default('') in ['shutdown', 'startup']
+          - node_name | default('') | length > 0
+          - idrac_host | default('') | length > 0
+          - idrac_username | default('') | length > 0
+          - idrac_password | default('') | length > 0
+        fail_msg: Set action (shutdown or startup), node_name, idrac_host, idrac_username, and idrac_password.
+      no_log: true
+
+    - name: Read OpenShift node
+      ansible.builtin.command:
+        argv: [oc, get, node, '{{ node_name }}', -o, json]
+      register: initial_node
+      changed_when: false
+
+    - name: Protect control-plane nodes
+      ansible.builtin.assert:
+        that:
+          - allow_control_plane | bool or ('node-role.kubernetes.io/master' not in (initial_node.stdout | from_json).metadata.labels and 'node-role.kubernetes.io/control-plane' not in (initial_node.stdout | from_json).metadata.labels)
+        fail_msg: Control-plane node blocked; review quorum and set allow_control_plane=true explicitly to proceed.
+      when: action == 'shutdown'
+
+    - name: Read iDRAC system before making changes
+      ansible.builtin.uri:
+        url: '{{ redfish_url }}'
+        user: '{{ idrac_username }}'
+        password: '{{ idrac_password }}'
+        force_basic_auth: true
+        validate_certs: '{{ idrac_validate_certs | bool }}'
+        return_content: true
+      register: system_before
+      no_log: true
+
+    - name: Cordon node
+      ansible.builtin.command:
+        argv: [oc, adm, cordon, '{{ node_name }}']
+      register: cordon_result
+      changed_when: "'already cordoned' not in cordon_result.stdout"
+      when: action == 'shutdown'
+
+    - name: Drain node without deleting local data or unmanaged pods
+      ansible.builtin.command:
+        argv: [oc, adm, drain, '{{ node_name }}', --ignore-daemonsets, --timeout=30m]
+      when: action == 'shutdown'
+      changed_when: true
+
+    - name: Request graceful shutdown
+      ansible.builtin.uri:
+        url: '{{ redfish_url }}/Actions/ComputerSystem.Reset'
+        method: POST
+        user: '{{ idrac_username }}'
+        password: '{{ idrac_password }}'
+        force_basic_auth: true
+        validate_certs: '{{ idrac_validate_certs | bool }}'
+        body_format: json
+        body:
+          ResetType: GracefulShutdown
+        status_code: [200, 202, 204]
+      no_log: true
+      when: action == 'shutdown' and (system_before.content | from_json).PowerState != 'Off'
+
+    - name: Request power on
+      ansible.builtin.uri:
+        url: '{{ redfish_url }}/Actions/ComputerSystem.Reset'
+        method: POST
+        user: '{{ idrac_username }}'
+        password: '{{ idrac_password }}'
+        force_basic_auth: true
+        validate_certs: '{{ idrac_validate_certs | bool }}'
+        body_format: json
+        body:
+          ResetType: 'On'
+        status_code: [200, 202, 204]
+      no_log: true
+      when: action == 'startup' and (system_before.content | from_json).PowerState != 'On'
+
+    - name: Wait for requested iDRAC power state
+      ansible.builtin.uri:
+        url: '{{ redfish_url }}'
+        user: '{{ idrac_username }}'
+        password: '{{ idrac_password }}'
+        force_basic_auth: true
+        validate_certs: '{{ idrac_validate_certs | bool }}'
+        return_content: true
+      register: power_state
+      until: ((power_state.content | default('{}', true) | from_json).PowerState | default('')) == ('Off' if action == 'shutdown' else 'On')
+      retries: '{{ power_wait_retries | int }}'
+      delay: '{{ power_wait_delay | int }}'
+      no_log: true
+
+    - name: Wait for node to report Ready
+      ansible.builtin.command:
+        argv: [oc, get, node, '{{ node_name }}', -o, json]
+      register: ready_node
+      changed_when: false
+      failed_when: false
+      until: ready_node.rc == 0 and ((ready_node.stdout | from_json).status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0)
+      retries: '{{ node_wait_retries | int }}'
+      delay: '{{ node_wait_delay | int }}'
+      when: action == 'startup'
+
+    - name: Uncordon node after it is Ready
+      ansible.builtin.command:
+        argv: [oc, adm, uncordon, '{{ node_name }}']
+      register: uncordon_result
+      changed_when: "'already uncordoned' not in uncordon_result.stdout"
+      when: action == 'startup'
+
+    - name: Verify node is Ready and schedulable
+      ansible.builtin.command:
+        argv: [oc, get, node, '{{ node_name }}', -o, json]
+      register: final_node
+      changed_when: false
+      failed_when: >-
+        final_node.rc != 0 or
+        ((final_node.stdout | from_json).spec.unschedulable | default(false) | bool) or
+        ((final_node.stdout | from_json).status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length == 0)
+      when: action == 'startup'
+
+    - name: Display node and resident pods for operator review
+      ansible.builtin.command:
+        argv: [oc, get, pods, -A, --field-selector, 'spec.nodeName={{ node_name }}', -o, wide]
+      register: node_pods
+      changed_when: false
+      when: action == 'startup'
+
+    - name: Show resident pods
+      ansible.builtin.debug:
+        var: node_pods.stdout_lines
+      when: action == 'startup'
