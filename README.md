@@ -29,19 +29,49 @@ Encrypt it immediately with `ansible-vault encrypt ~/node-maintenance.yml`. Prot
 
 ## Run
 
-```bash
-# Inspect the target cluster and ensure the node/iDRAC mapping is correct.
-oc whoami --show-server
-oc get node worker-0.example.com
+Run one node at a time. These examples use the Luke cluster and `control02.syangsao.net`; use a different kubeconfig and encrypted variables file for another cluster or node.
 
-# Cordon, drain, request graceful shutdown, and wait for iDRAC PowerState Off.
-ansible-playbook maintenance.yml -e @~/node-maintenance.yml -e action=shutdown --ask-vault-pass
+1. Select the cluster and review its health and workloads:
 
-# Power on, wait for iDRAC PowerState On and node Ready, uncordon, and verify.
-ansible-playbook maintenance.yml -e @~/node-maintenance.yml -e action=startup --ask-vault-pass
-```
+   ```bash
+   export KUBECONFIG="$HOME/ocp422-luke/auth/kubeconfig"
+   oc whoami --show-server
+   oc get nodes
+   oc get clusteroperators
+   oc get pdb -A
+   oc get pods -A --field-selector spec.nodeName=control02.syangsao.net -o wide
+   ```
 
-The startup output lists resident pods for review. `Ready` and schedulable do not establish workload health: inspect those pods, cluster operators (`oc get clusteroperators`), alerts, and application-specific health before declaring the node fully recovered. Power-on and Ready timeouts default to 10 and 20 minutes respectively; adjust `power_wait_retries`, `power_wait_delay`, `node_wait_retries`, or `node_wait_delay` in the encrypted variables file if needed.
+   Verify the node-to-iDRAC mapping independently, check etcd quorum and cluster capacity, and review affected `emptyDir` data and unmanaged pods. Do not proceed if the disruption is unsafe.
+
+2. Shut down the node using its encrypted variables file:
+
+   ```bash
+   ansible-playbook maintenance.yml -e @~/node-maintenance.yml \
+     -e action=shutdown -e allow_control_plane=true --ask-vault-pass
+   ```
+
+   Omit `-e allow_control_plane=true` for workers. For control-plane nodes, this explicit override is required but does not verify quorum. The playbook cordons the configured node and runs `oc adm drain` with `--delete-emptydir-data=true --ignore-daemonsets=true --force=true --timeout=30m`. It requests graceful power-off only if drain succeeds, then waits for iDRAC to report `Off`.
+
+3. To return the node to service, select the same kubeconfig and run:
+
+   ```bash
+   ansible-playbook maintenance.yml -e @~/node-maintenance.yml \
+     -e action=startup --ask-vault-pass
+   ```
+
+   The playbook requests power-on, waits for iDRAC `On` and OpenShift `Ready`, uncordons the node, verifies it is Ready and schedulable, and lists resident pods.
+
+4. Check node, workloads, operators, etcd, alerts and applications before declaring recovery:
+
+   ```bash
+   oc get nodes
+   oc get pods -A --field-selector spec.nodeName=control02.syangsao.net -o wide
+   oc get pods -n openshift-etcd -o wide
+   oc get clusteroperators
+   ```
+
+`Ready` and schedulable do not establish workload health. Power-state and node Ready timeouts default to 10 and 20 minutes respectively; adjust `power_wait_retries`, `power_wait_delay`, `node_wait_retries`, or `node_wait_delay` in the encrypted variables file if needed. If using an untrusted self-signed iDRAC certificate, `idrac_validate_certs: false` must be explicitly configured; this disables server identity verification for both startup and shutdown.
 
 ## Failure handling
 
