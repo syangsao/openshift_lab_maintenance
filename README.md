@@ -102,4 +102,13 @@ On 2026-11-13, `control02.syangsao.net` was shut down on the Luke cluster. It is
 
 The playbook now uses the same drain flags by default. This change was made after the recorded shutdown; that shutdown used a manual drain and separate power request. Do not skip identity and health checks, or power off after a failed drain.
 
-To bring the node back, use the startup playbook command above with the Luke kubeconfig and the node's encrypted variables file. If the iDRAC certificate remains untrusted, the documented explicit TLS exception is still required. Then verify the node, resident pods, cluster operators, etcd and application health; startup has not yet been tested against this node.
+## Lab startup: Luke control02
+
+On 2026-11-16, `control02.syangsao.net` was powered back on with the startup playbook and returned to service. This is an operational record.
+
+1. Pre-flight: the node was `NotReady,SchedulingDisabled`; `control01` and the arbiter were Ready and all three etcd pods were running, so quorum held while control02 was off. iDRAC reported `PowerState: Off`.
+2. The first run failed at "Read iDRAC system" with `SSL: CERTIFICATE_VERIFY_FAILED: self-signed certificate`: the encrypted variables file was missing `idrac_validate_certs: false`, so the playbook default (`true`) applied. This is a configuration gap, not a playbook bug — the README already requires the explicit TLS exception for this iDRAC. The variable was added to the encrypted file and it was re-encrypted; no playbook code changed.
+3. The second run succeeded in about 4.5 minutes: power-on request, iDRAC `On` wait, node Ready wait, uncordon, and final verification all passed (`ok=10 changed=1 failed=0`).
+4. Post-startup the cluster was still settling, as expected: kube-apiserver and openshift-controller-manager were progressing with control-plane reinstall/replica reconciliation, and monitoring remained degraded from before this run (Prometheus operator webhook rollout stuck since 2026-11-14). All etcd members were healthy.
+
+Startup has now been tested against this node end to end.

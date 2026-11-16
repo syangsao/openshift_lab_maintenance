@@ -1,4 +1,6 @@
 *.retry
 *.vault.yml
+control01.yml
+control02.yml
 .venv/
 __pycache__/
