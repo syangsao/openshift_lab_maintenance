@@ -2,5 +2,6 @@
 *.vault.yml
 control01.yml
 control02.yml
+node-maintenance.smtp.conf
 .venv/
 __pycache__/

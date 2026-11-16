@@ -112,3 +112,43 @@ On 2026-11-16, `control02.syangsao.net` was powered back on with the startup pla
 4. Post-startup the cluster was still settling, as expected: kube-apiserver and openshift-controller-manager were progressing with control-plane reinstall/replica reconciliation, and monitoring remained degraded from before this run (Prometheus operator webhook rollout stuck since 2026-11-14). All etcd members were healthy.
 
 Startup has now been tested against this node end to end.
+
+## Scheduled weekly maintenance
+
+`node-maintenance.py` runs the playbook for one node and emails the result (success or failure, with the last 60 lines of playbook output). It is driven by cron on the management host:
+
+| Day | Time | Action | Node |
+|---|---|---|---|
+| Mon | 18:00 | shutdown | control01 |
+| Tue | 07:00 | startup | control01 |
+| Tue | 18:00 | shutdown | control02 |
+| Wed | 07:00 | startup | control02 |
+| Wed | 18:00 | shutdown | control01 |
+| Thu | 07:00 | startup | control01 |
+| Thu | 18:00 | shutdown | control02 |
+| Fri | 07:00 | startup | control02 |
+| Fri | 18:00 | shutdown | control02 |
+| Mon | 07:00 | startup | control02 |
+
+The script expects:
+
+- `KUBECONFIG` pointing at the Luke cluster (`~/ocp422-luke/auth/kubeconfig` is set internally).
+- A vault password file at `/tmp/.nm-vaultpass` (mode 600) so cron can run unattended. If it is missing, the script emails an error instead of running the playbook. `/tmp` may be cleared on reboot; restore the file or the next scheduled run will fail with a notification.
+- An SMTP config at `node-maintenance.smtp.conf` (mode 600, gitignored) in INI format:
+
+  ```ini
+  [smtp]
+  host = smtp.gmail.com
+  port = 587
+  secure = tls
+  username = you@gmail.com
+  password = <app password>
+  from = you@gmail.com
+  to = recipient@example.com
+  ```
+
+  Gmail requires an app password (Google Account → Security → 2-Step Verification → App passwords); SMTP AUTH is disabled for Microsoft 365 mailboxes, so Outlook cannot be used as the relay.
+
+Logs: `logs/node-maintenance.log` (script) and `logs/cron.log` (cron stdout/stderr), both gitignored. Exit codes: 0 playbook succeeded and email sent, 1 playbook failed (email sent), 2 email failed after the playbook finished.
+
+Operational notes: shutdowns are real — the playbook cordons, drains with the documented destructive flags, then sends `GracefulShutdown` to iDRAC. The Friday 18:00 → Monday 07:00 window leaves control02 off for about 61 hours; quorum holds on the remaining two etcd members, but a second control-plane failure in that window loses quorum.
