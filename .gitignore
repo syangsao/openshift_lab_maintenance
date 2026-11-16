@@ -5,3 +5,4 @@ control02.yml
 node-maintenance.smtp.conf
 .venv/
 __pycache__/
+logs/
