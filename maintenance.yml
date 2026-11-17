@@ -29,6 +29,14 @@
         argv: [oc, get, node, '{{ node_name }}', -o, json]
       register: initial_node
       changed_when: false
+      failed_when: false
+
+    - name: Determine node Ready state before making changes
+      ansible.builtin.set_fact:
+        node_ready_before: >-
+          {{ (initial_node.stdout | default('{}') | from_json).status.conditions
+             | selectattr('type', 'equalto', 'Ready')
+             | selectattr('status', 'equalto', 'True') | list | length > 0 }}
 
     - name: Protect control-plane nodes
       ansible.builtin.assert:
@@ -89,7 +97,10 @@
           ResetType: 'On'
         status_code: [200, 202, 204]
       no_log: true
-      when: action == 'startup' and (system_before.content | from_json).PowerState != 'On'
+      when: >-
+        action == 'startup' and
+        ((system_before.content | from_json).PowerState != 'On') or
+        (not node_ready_before)
 
     - name: Wait for requested iDRAC power state
       ansible.builtin.uri:
