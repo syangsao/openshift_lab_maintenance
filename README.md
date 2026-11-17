@@ -120,15 +120,17 @@ Startup has now been tested against this node end to end.
 | Day | Time | Action | Node |
 |---|---|---|---|
 | Mon | 18:00 | shutdown | control01 |
-| Tue | 07:00 | startup | control01 |
+| Tue | 07:00 | startup | control02 |
 | Tue | 18:00 | shutdown | control02 |
-| Wed | 07:00 | startup | control02 |
+| Wed | 07:00 | startup | control01 |
 | Wed | 18:00 | shutdown | control01 |
-| Thu | 07:00 | startup | control01 |
+| Thu | 07:00 | startup | control02 |
 | Thu | 18:00 | shutdown | control02 |
-| Fri | 07:00 | startup | control02 |
-| Fri | 18:00 | shutdown | control02 |
-| Mon | 07:00 | startup | control02 |
+| Fri | 07:00 | startup | control01 |
+| Fri | 18:00 | shutdown | control01 |
+| Sat | 07:00 | startup | control01 |
+
+The rotation keeps exactly one control-plane node off at a time. Friday's shutdown of `control01` stays down over the weekend and returns Saturday 07:00; both nodes are up Sunday. This avoids the previous schedule's consecutive-day double-outage (both masters off Wed 18:00 → Thu 07:00) and its broken Friday→Monday window that left control02 off ~61 hours while control01 was never restarted.
 
 The script expects:
 
@@ -151,4 +153,4 @@ The script expects:
 
 Logs: `logs/node-maintenance.log` (script) and `logs/cron.log` (cron stdout/stderr), both gitignored. Exit codes: 0 playbook succeeded and email sent, 1 playbook failed (email sent), 2 email failed after the playbook finished.
 
-Operational notes: shutdowns are real — the playbook cordons, drains with the documented destructive flags, then sends `GracefulShutdown` to iDRAC. The Friday 18:00 → Monday 07:00 window leaves control02 off for about 61 hours; quorum holds on the remaining two etcd members, but a second control-plane failure in that window loses quorum.
+Operational notes: shutdowns are real — the playbook cordons, drains with the documented destructive flags, then sends `GracefulShutdown` to iDRAC. The longest single-node outage is Friday 18:00 → Saturday 07:00 (~37 hours) for `control01`; quorum holds on the remaining two etcd members (the other control-plane node plus the arbiter), but a second control-plane failure in that window loses quorum.
