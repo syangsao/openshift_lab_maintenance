@@ -119,6 +119,7 @@ Startup has now been tested against this node end to end.
 
 | Day | Time | Action | Node |
 |---|---|---|---|
+| Mon | 07:00 | startup | control02 |
 | Mon | 18:00 | shutdown | control01 |
 | Tue | 07:00 | startup | control01 |
 | Tue | 18:00 | shutdown | control02 |
@@ -128,7 +129,6 @@ Startup has now been tested against this node end to end.
 | Thu | 18:00 | shutdown | control02 |
 | Fri | 07:00 | startup | control02 |
 | Fri | 18:00 | shutdown | control02 |
-| Mon | 07:00 | startup | control02 |
 
 The script expects:
 
