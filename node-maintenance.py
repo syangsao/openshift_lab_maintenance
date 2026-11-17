@@ -6,11 +6,11 @@ Usage:
     node-maintenance.py --action shutdown|startup --node control01|control02
 
 Cron schedule (see crontab):
-    control01: shutdown Mon 18:00, startup Tue 07:00
-    control02: shutdown Tue 18:00, startup Wed 07:00
-    control01: shutdown Wed 18:00, startup Thu 07:00
-    control02: shutdown Thu 18:00, startup Fri 07:00
-    control01: shutdown Fri 18:00  (control01 down over the entire weekend; no Saturday start)
+    Mon 18:00 shutdown control01   -> Tue 07:00 startup control01
+    Tue 18:00 shutdown control02   -> Wed 07:00 startup control01
+    Wed 18:00 shutdown control01   -> Thu 07:00 startup control02
+    Thu 18:00 shutdown control02   -> Fri 07:00 startup control01
+    Fri 18:00 shutdown control01   (control01 down over the entire weekend; no Saturday start)
 
 Exit codes:
     0  playbook succeeded and email was sent

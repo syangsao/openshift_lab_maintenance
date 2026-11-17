@@ -120,7 +120,7 @@ Startup has now been tested against this node end to end.
 | Day | Time | Action | Node |
 |---|---|---|---|
 | Mon | 18:00 | shutdown | control01 |
-| Tue | 07:00 | startup | control02 |
+| Tue | 07:00 | startup | control01 |
 | Tue | 18:00 | shutdown | control02 |
 | Wed | 07:00 | startup | control01 |
 | Wed | 18:00 | shutdown | control01 |
