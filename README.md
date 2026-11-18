@@ -133,6 +133,7 @@ Startup has now been tested against this node end to end.
 The script expects:
 
 - `KUBECONFIG` pointing at the Luke cluster (`~/ocp422-luke/auth/kubeconfig` is set internally).
+- The `oc` client in `~/bin`; the wrapper supplies that directory and the standard system executable directories in `PATH`, including under cron.
 - A vault password file at `/tmp/.nm-vaultpass` (mode 600) so cron can run unattended. If it is missing, the script emails an error instead of running the playbook. `/tmp` may be cleared on reboot; restore the file or the next scheduled run will fail with a notification.
 - An SMTP config at `node-maintenance.smtp.conf` (mode 600, gitignored) in INI format:
 
@@ -150,5 +151,19 @@ The script expects:
   Gmail requires an app password (Google Account → Security → 2-Step Verification → App passwords); SMTP AUTH is disabled for Microsoft 365 mailboxes, so Outlook cannot be used as the relay.
 
 Logs: `logs/node-maintenance.log` (script) and `logs/cron.log` (cron stdout/stderr), both gitignored. Exit codes: 0 playbook succeeded and email sent, 1 playbook failed (email sent), 2 email failed after the playbook finished.
+
+If a scheduled run fails:
+
+1. Check `logs/cron.log`, `logs/node-maintenance.log`, and the failure email, which includes the last 60 lines of playbook output. The local logs record the exit code but not the full playbook output.
+2. Inspect the node, iDRAC power state, cluster health, etcd quorum, disruption budgets, and affected workloads before retrying. A failed drain can leave the node cordoned; do not send a separate power-off request after a failed drain.
+3. After correcting the cause, rerun the intended action, for example:
+
+   ```bash
+   /usr/bin/python3 ~/openshift_lab_maintenance/node-maintenance.py --action shutdown --node control02
+   ```
+
+   Shutdown uses the destructive drain flags described above. Verify the result and the notification; inspect the node and iDRAC state before any further retry.
+
+On 2026-11-17, cron could not find `oc` because its PATH omitted `~/bin`. After the wrapper PATH was corrected, the missed control02 shutdown was rerun with a restricted cron-like environment. The playbook reported success at 19:10 and the success email was sent. Before the rerun, all nodes were Ready, all etcd pods were running, and all cluster operators were available and not degraded.
 
 Operational notes: shutdowns are real — the playbook cordons, drains with the documented destructive flags, then sends `GracefulShutdown` to iDRAC. The Friday 18:00 → Monday 07:00 window leaves control02 off for about 61 hours; quorum holds on the remaining two etcd members, but a second control-plane failure in that window loses quorum.

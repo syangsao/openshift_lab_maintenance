@@ -60,6 +60,7 @@ def run_playbook(action: str, node: str) -> tuple[int, str]:
         "--vault-password-file", str(VAULT_PASS_FILE),
     ]
     env = dict(os.environ, KUBECONFIG=str(KUBECONFIG))
+    env["PATH"] = f"{Path.home() / 'bin'}{os.pathsep}{os.defpath}"
     log(f"running: {' '.join(cmd)}")
     proc = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True)
     out = proc.stdout + ("\n--- stderr ---\n" + proc.stderr if proc.stderr else "")
